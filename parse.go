@@ -34,11 +34,12 @@ func parseRFC3659ListLine(line string, _ time.Time, loc *time.Location) (*Entry,
 }
 
 func parseNextRFC3659ListLine(line string, loc *time.Location, e *Entry) (*Entry, error) {
+	line = strings.TrimLeft(line, " ")
 	iSemicolon := strings.Index(line, ";")
 	iWhitespace := strings.Index(line, " ")
 
 	if iSemicolon < 0 || iSemicolon > iWhitespace {
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: semicolon=%d whitespace=%d: %q", errUnsupportedListLine, iSemicolon, iWhitespace, line)
 	}
 
 	name := line[iWhitespace+1:]
@@ -46,13 +47,13 @@ func parseNextRFC3659ListLine(line string, loc *time.Location, e *Entry) (*Entry
 		e.Name = name
 	} else if e.Name != name {
 		// All lines must have the same name
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: name=%q differs from first=%q: %q", errUnsupportedListLine, name, e.Name, line)
 	}
 
 	for _, field := range strings.Split(line[:iWhitespace-1], ";") {
 		i := strings.Index(field, "=")
 		if i < 1 {
-			return nil, errUnsupportedListLine
+			return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, line)
 		}
 
 		key := strings.ToLower(field[:i])
@@ -89,14 +90,14 @@ func parseLsListLine(line string, now time.Time, loc *time.Location) (*Entry, er
 	// - or 10 bytes with an additional '+' character for indicating ACLs?
 	// If not, return.
 	if i := strings.IndexByte(line, ' '); !(i == 10 || (i == 11 && line[10] == '+')) {
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, line)
 	}
 
 	scanner := newScanner(line)
 	fields := scanner.NextFields(6)
 
 	if len(fields) < 6 {
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, fields)
 	}
 
 	if fields[1] == "folder" && fields[2] == "0" {
@@ -119,7 +120,7 @@ func parseLsListLine(line string, now time.Time, loc *time.Location) (*Entry, er
 		}
 
 		if err := e.setSize(fields[2]); err != nil {
-			return nil, errUnsupportedListLine
+			return nil, fmt.Errorf("%w: %w", errUnsupportedListLine, fields)
 		}
 		if err := e.setTime(fields[4:7], now, loc); err != nil {
 			return nil, err
@@ -131,7 +132,7 @@ func parseLsListLine(line string, now time.Time, loc *time.Location) (*Entry, er
 	// Read two more fields
 	fields = append(fields, scanner.NextFields(2)...)
 	if len(fields) < 8 {
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, fields)
 	}
 
 	e := &Entry{
@@ -182,7 +183,7 @@ func parseDirListLine(line string, now time.Time, loc *time.Location) (*Entry, e
 	}
 	if err != nil {
 		// None of the time formats worked.
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, err)
 	}
 
 	line = strings.TrimLeft(line, " ")
@@ -192,11 +193,11 @@ func parseDirListLine(line string, now time.Time, loc *time.Location) (*Entry, e
 	} else {
 		space := strings.Index(line, " ")
 		if space == -1 {
-			return nil, errUnsupportedListLine
+			return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, line)
 		}
 		e.Size, err = strconv.ParseUint(line[:space], 10, 64)
 		if err != nil {
-			return nil, errUnsupportedListLine
+			return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, line[:space])
 		}
 		e.Type = EntryTypeFile
 		line = line[space:]
@@ -213,14 +214,14 @@ func parseDirListLine(line string, now time.Time, loc *time.Location) (*Entry, e
 func parseHostedFTPLine(line string, now time.Time, loc *time.Location) (*Entry, error) {
 	// Has the first field a length of 10 bytes?
 	if strings.IndexByte(line, ' ') != 10 {
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, line)
 	}
 
 	scanner := newScanner(line)
 	fields := scanner.NextFields(2)
 
 	if len(fields) < 2 || fields[1] != "0" {
-		return nil, errUnsupportedListLine
+		return nil, fmt.Errorf("%w: %q", errUnsupportedListLine, fields)
 	}
 
 	// Set link count to 1 and attempt to parse as Unix.
@@ -232,7 +233,7 @@ func parseHostedFTPLine(line string, now time.Time, loc *time.Location) (*Entry,
 func parseListLine(line string, now time.Time, loc *time.Location) (*Entry, error) {
 	for _, f := range listLineParsers {
 		e, err := f(line, now, loc)
-		if err != errUnsupportedListLine {
+		if !errors.Is(err, errUnsupportedListLine) {
 			return e, err
 		}
 	}

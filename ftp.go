@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -1026,42 +1027,29 @@ func (c *ServerConn) Delete(path string) error {
 
 // RemoveDirRecur deletes a non-empty folder recursively using
 // RemoveDir and Delete
-func (c *ServerConn) RemoveDirRecur(path string) error {
-	err := c.ChangeDir(path)
-	if err != nil {
-		return err
-	}
-	currentDir, err := c.CurrentDir()
-	if err != nil {
-		return err
-	}
-
-	entries, err := c.List(currentDir)
+func (c *ServerConn) RemoveDirRecur(root string) error {
+	entries, err := c.List(root)
 	if err != nil {
 		return err
 	}
 
 	for _, entry := range entries {
 		if entry.Name != ".." && entry.Name != "." {
+			nm := path.Join(root, entry.Name)
 			if entry.Type == EntryTypeFolder {
-				err = c.RemoveDirRecur(currentDir + "/" + entry.Name)
+				err = c.RemoveDirRecur(nm)
 				if err != nil {
 					return err
 				}
 			} else {
-				err = c.Delete(entry.Name)
+				err = c.Delete(nm)
 				if err != nil {
 					return err
 				}
 			}
 		}
 	}
-	err = c.ChangeDirToParent()
-	if err != nil {
-		return err
-	}
-	err = c.RemoveDir(currentDir)
-	return err
+	return c.RemoveDir(root)
 }
 
 // MakeDir issues a MKD FTP command to create the specified directory on the
